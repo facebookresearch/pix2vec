@@ -17,7 +17,7 @@ from torchvision import transforms as T
 import torch.distributed as dist
 from torchvision.utils import make_grid
 from argparse import Namespace
-from collections import Counter
+from collections import Counter, OrderedDict
 
 def get_args():
     args = Namespace(
@@ -102,8 +102,8 @@ class Trainer():
                 self.model, device_ids=[self.local_rank], output_device=self.local_rank,
                 find_unused_parameters=True
             )
-        if self.log:
-            print(f'| {self.model}')
+#         if self.log:
+#             print(f'| {self.model}')
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=args.lr, weight_decay=args.wd, betas=(0.9, 0.999), amsgrad=False)
         self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=args.milestones, gamma=args.gamma)
         
@@ -233,14 +233,18 @@ class Trainer():
         args = self.args
         x = torch.load(ckptPath)
 
-        self.model.load_state_dict(x['model'])
+        if hasattr(self.model, 'module'):
+            self.model.load_state_dict(x['model'])
+        else:
+            sd = OrderedDict([(k.replace('module.', ''),v) for k,v in x['model'].items()])
+            self.model.load_state_dict(sd)
         self.optimizer.load_state_dict(x['optimizer'])
         self.scheduler.load_state_dict(x['scheduler'])
         if len(args.milestones):
             self.scheduler.milestones = Counter(args.milestones)
         self.iteration = x['iteration']
         self.bestPSNR = x['bestPSNR']
-        print(f'Loaded ckpt from {ckptPath} with {self.iteration} iterations and {self.bestPSNR} PSNR')
+        print(f'Loaded ckpt from {ckptPath} with {self.iteration} iterations and {self.bestPSNR:0.2f} PSNR')
         
     def save(self, name=''):
         if not self.log:
